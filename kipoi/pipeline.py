@@ -5,8 +5,8 @@ from __future__ import print_function
 
 import os
 from kipoi_utils.utils import cd
+from kipoi_utils.data_utils import numpy_collate_concat
 import kipoi  # for .config module
-from .data import numpy_collate_concat
 # import h5py
 import six
 from tqdm import tqdm
@@ -147,7 +147,8 @@ class Pipeline(object):
         logger.info('predict_example done!')
         return numpy_collate_concat(pred_list)
 
-    def predict(self, dataloader_kwargs, batch_size=32, **kwargs):
+    def predict(self, dataloader_kwargs, batch_size=32, dataloader_hook=None,
+                **kwargs):
         """
         # Arguments
             dataloader_kwargs: Keyword arguments passed to the pre-processor
@@ -156,11 +157,24 @@ class Pipeline(object):
         # Returns
             np.array, dict, list: Predict the whole array
         """
-        pred_list = [batch for batch in tqdm(self.predict_generator(dataloader_kwargs,
-                                                                    batch_size, **kwargs))]
-        return numpy_collate_concat(pred_list)
+        pred_metadata_list = [batch for batch in tqdm(
+            self.predict_generator(dataloader_kwargs,
+                                   batch_size=batch_size,
+                                   dataloader_hook=dataloader_hook,
+                                   **kwargs))]
 
-    def predict_generator(self, dataloader_kwargs, batch_size=32, layer=None, **kwargs):
+        pred_metadata_list_unzipped = list(zip(*pred_metadata_list))
+        predictions = numpy_collate_concat(pred_metadata_list_unzipped[0])
+        metadata = numpy_collate_concat(pred_metadata_list_unzipped[1])
+        if dataloader_hook is not None:
+            result = (predictions, metadata)
+        else:
+            result = predictions
+
+        return result
+
+    def predict_generator(self, dataloader_kwargs, batch_size=32, layer=None,
+                          dataloader_hook=None, **kwargs):
         """Prediction generator
 
         # Arguments
@@ -186,10 +200,20 @@ class Pipeline(object):
         for i, batch in enumerate(it):
             if i == 0 and not self.dataloader_cls.get_output_schema().compatible_with_batch(batch):
                 logger.warning("First batch of data is not compatible with the dataloader schema.")
+
+            # TODO: use dataloader_hook (if not None) on each element of batch
+            # TODO: return tuple of (predictions, metadata)
             if layer is None:
-                yield self.model.predict_on_batch(batch['inputs'])
+                predictions = self.model.predict_on_batch(batch['inputs'])
             else:
-                yield self.model.predict_activation_on_batch(batch['inputs'], layer=layer)
+                predictions = self.model.predict_activation_on_batch(batch['inputs'], layer=layer)
+
+            if dataloader_hook is not None:
+                metadata = dataloader_hook(batch['metadata'])
+            else:
+                metadata = None
+
+            yield (predictions, metadata)
 
     def predict_to_file(self, output_file, dataloader_kwargs, batch_size=32, keep_inputs=False, **kwargs):
         """Make predictions and write them iteratively to a file
