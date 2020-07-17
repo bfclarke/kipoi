@@ -8,9 +8,9 @@ from kipoi_utils.utils import cd
 from kipoi_utils.data_utils import numpy_collate_concat
 import kipoi  # for .config module
 # import h5py
+import numpy as np
 import six
 from tqdm import tqdm
-import six
 import deprecation
 from ._version import __version__
 import logging
@@ -163,9 +163,14 @@ class Pipeline(object):
                                    dataloader_hook=dataloader_hook,
                                    **kwargs))]
 
-        pred_metadata_list_unzipped = list(zip(*pred_metadata_list))
-        predictions = numpy_collate_concat(pred_metadata_list_unzipped[0])
-        metadata = numpy_collate_concat(pred_metadata_list_unzipped[1])
+        if len(pred_metadata_list) == 0:
+            predictions = np.array([])
+            metadata = {}
+        else:
+            pred_metadata_list_unzipped = list(zip(*pred_metadata_list))
+            predictions = numpy_collate_concat(pred_metadata_list_unzipped[0])
+            metadata = numpy_collate_concat(pred_metadata_list_unzipped[1])
+
         if dataloader_hook is not None:
             result = (predictions, metadata)
         else:
